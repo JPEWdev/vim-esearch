@@ -3,6 +3,7 @@ let s:mappings = {
       \ '<C-o><C-s>':  '<Plug>(esearch-toggle-case)',
       \ '<C-o><C-w>':  '<Plug>(esearch-toggle-word)',
       \ '<C-o><C-h>':  '<Plug>(esearch-cmdline-help)',
+      \ '<C-o><C-d>':  '<Plug>(esearch-change-cwd)',
       \ 'key':         function('esearch#util#key'),
       \ 'dict':        function('esearch#util#dict'),
       \ 'without_val':        function('esearch#util#without_val'),
@@ -11,6 +12,7 @@ let s:comments = {
       \ '<Plug>(esearch-toggle-regex)': 'Toggle regex(r) or literal(>) match',
       \ '<Plug>(esearch-toggle-case)':  'Toggle case sensitive(c) or insensitive(>) match',
       \ '<Plug>(esearch-toggle-word)':  'Toggle only whole words matching(w)',
+      \ '<Plug>(esearch-change-cwd)':   'Change current working directory',
       \ '<Plug>(esearch-cmdline-help)':  'Show this message',
       \}
 
@@ -58,12 +60,13 @@ endif
 cnoremap <Plug>(esearch-toggle-regex)        <C-r>=<SID>run('s:invert', 'regex')<CR>
 cnoremap <Plug>(esearch-toggle-case)         <C-r>=<SID>run('s:invert', 'case')<CR>
 cnoremap <Plug>(esearch-toggle-word)         <C-r>=<SID>run('s:invert', 'word')<CR>
+cnoremap <Plug>(esearch-change-cwd)          <C-r>=<SID>run('s:prompt_cwd')<CR>
 cnoremap <Plug>(esearch-cmdline-help)        <C-r>=<SID>run('s:help')<CR>
 
 
 " TODO MAJOR PRIO refactoring
 " a:adapter_options is used to display adapter config in the prompt (>>>)
-fu! esearch#cmdline#read(cmdline_opts, adapter_options) abort
+fu! esearch#cmdline#read(opts, cmdline_opts, adapter_options) abort
   " Preparing cmdline
   """""""""""""""""""""""""""
   let old_mapargs = s:init_mappings()
@@ -82,7 +85,7 @@ fu! esearch#cmdline#read(cmdline_opts, adapter_options) abort
 
   if !empty(s:cmdline) && g:esearch#cmdline#select_initial
     let [s:cmdline, enter_was_pressed, special_key_was_pressed] =
-          \ s:handle_initial_select(s:cmdline, a:cmdline_opts.cwd, a:adapter_options)
+          \ s:handle_initial_select(s:cmdline, a:opts.cwd, a:adapter_options)
     redraw!
 
     if special_key_was_pressed
@@ -90,7 +93,7 @@ fu! esearch#cmdline#read(cmdline_opts, adapter_options) abort
       " Such a veird way is needed to handle special keys listed in
       " the g:esearch#cmdline#select_cancelling_chars
       exe "norm :call esearch#init({'empty_cmdline': 1})\<CR>".s:cmdline
-      return 0
+      return a:opts
     endif
   else
 
@@ -102,14 +105,14 @@ fu! esearch#cmdline#read(cmdline_opts, adapter_options) abort
   if enter_was_pressed
     let str = s:cmdline
   else
-    let str = s:main_loop(a:cmdline_opts, a:adapter_options)
+    let str = s:main_loop(a:opts, a:cmdline_opts, a:adapter_options)
   endif
   """""""""""""""""""""""""""
 
   call s:recover_mappings(old_mapargs)
 
   if empty(str)
-    return {}
+    return a:opts
   endif
 
   " Build search expression
@@ -123,10 +126,11 @@ fu! esearch#cmdline#read(cmdline_opts, adapter_options) abort
   endif
   """""""""""""""""""""""""""
 
-  return s:pattern
+  let a:opts.exp = s:pattern
+  return a:opts
 endfu
 
-fu! s:main_loop(cmdline_opts, adapter_options) abort
+fu! s:main_loop(opts, cmdline_opts, adapter_options) abort
   let s:cmdpos = len(s:cmdline) + 1
   let s:list_help = 0
   let s:events = []
@@ -134,7 +138,7 @@ fu! s:main_loop(cmdline_opts, adapter_options) abort
   " Main loop
   """""""""""
   while 1
-    call s:render_directory_prompt(a:cmdline_opts.cwd)
+    call s:render_directory_prompt(a:opts.cwd)
     let str = input(s:prompt(a:adapter_options), s:cmdline, 'customlist,esearch#cmdline#buff_compl')
 
     if empty(s:events)
@@ -142,7 +146,9 @@ fu! s:main_loop(cmdline_opts, adapter_options) abort
     endif
 
     for handler in s:events
-      call call(handler.funcref, handler.args)
+      let args = copy(handler.args)
+      let args += [a:opts]
+      call call(handler.funcref, args)
     endfor
 
     let s:events = []
@@ -218,7 +224,7 @@ fu! s:list_help() abort
   return ''
 endfu
 
-fu! s:help() abort
+fu! s:help(opts) abort
   call esearch#help#cmdline(s:mappings, s:comments)
   call getchar()
 endfu
@@ -231,11 +237,19 @@ fu! s:run(func, ...) abort
   return ''
 endfu
 
-fu! s:invert(option) abort
+fu! s:invert(option, opts) abort
   if a:option ==# 'regex' && g:esearch.recover_regex
     call s:recover_regex()
   endif
   call g:esearch.invert(a:option)
+endfu
+
+fu! s:prompt_cwd(opts) abort
+  call inputsave()
+  let a:opts.cwd = input('Change directory: ', a:opts.cwd, 'dir')
+  " Strip trailing slashes
+  let a:opts.cwd = substitute(a:opts.cwd, '\/*$', '', '')
+  call inputrestore()
 endfu
 
 fu! s:recover_regex() abort

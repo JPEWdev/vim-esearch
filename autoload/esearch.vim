@@ -28,12 +28,11 @@ fu! esearch#init(...) abort
   if !has_key(opts, 'exp')
     let adapter_opts = esearch#adapter#{opts.adapter}#_options()
     let cmdline_opts = {
-          \ 'cwd': opts.cwd,
           \ 'exp': g:esearch._last_search,
           \ 'empty_cmdline': get(opts, 'empty_cmdline', 0),
           \}
-    let opts.exp = esearch#cmdline#read(cmdline_opts, adapter_opts)
-    if empty(opts.exp)
+    let opts = esearch#cmdline#read(opts, cmdline_opts, adapter_opts)
+    if !has_key(opts, 'exp') || empty(opts.exp)
       return 1
     endif
     let opts.exp = esearch#regex#finalize(opts.exp, g:esearch)
